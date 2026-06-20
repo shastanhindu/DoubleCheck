@@ -652,76 +652,23 @@
         <div class="acc-head" onclick="toggleAcc(this)">
           <span class="acc-title">
             Public IP Addresses — OSINT Enriched
-            <span class="tab-count" style="margin-left:8px">{{ enr|length }}</span>
+            <span class="tab-count" style="margin-left:8px">{{ raw_ips|length }}</span>
           </span>
           <span class="acc-arrow">▼</span>
         </div>
         <div class="acc-body">
-          {% if enr %}
-            <!-- Quick chip view -->
-            <div class="ip-chips">
-              {% for ip in enr %}
-              <span class="ip-chip {% if ip.is_malicious_ip %}mal{% endif %}">{{ ip.ip }}</span>
-              {% endfor %}
-            </div>
-            <!-- Full OSINT table -->
-            <table class="nt">
-              <thead>
-                <tr>
-                  <th>IP Address</th>
-                  <th>Country</th>
-                  <th>City / Region</th>
-                  <th>ISP / ASN</th>
-                  <th>Hosting</th>
-                  <th>Abuse Score</th>
-                  <th>Verdict</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for ip in enr %}
-                <tr>
-                  <td class="mono" style="font-weight:700;color:var(--cyan)">{{ ip.ip }}</td>
-                  <td>
-                    {% if ip.country and ip.country != 'Unknown' %}
-                      🌍 {{ ip.country }}{% if ip.country_code %} ({{ ip.country_code }}){% endif %}
-                    {% else %}<span style="color:var(--muted2)">Unknown</span>{% endif %}
-                  </td>
-                  <td style="font-size:0.8rem;color:var(--muted)">
-                    {{ ip.city or '' }}{% if ip.city and ip.region %}, {% endif %}{{ ip.region or '' }}
-                    {% if not ip.city and not ip.region %}<span style="color:var(--muted2)">—</span>{% endif %}
-                  </td>
-                  <td style="font-size:0.78rem">
-                    <div>{{ ip.isp or '—' }}</div>
-                    <div style="color:var(--muted2);font-family:monospace;font-size:0.72rem">{{ ip.asn or '' }}</div>
-                  </td>
-                  <td>{% if ip.hosting %}<span style="color:var(--orange)">☁ VPS/DC</span>{% else %}<span style="color:var(--muted2)">No</span>{% endif %}</td>
-                  <td>
-                    {% set score = (ip.abuse_score or 0)|int %}
-                    <div class="abuse-bar">
-                      <div style="height:6px;width:100%;background:var(--border2);border-radius:3px;margin-bottom:4px;overflow:hidden">
-                        <div style="height:100%;width:{{ score }}%;background:{% if score>=70 %}var(--red){% elif score>=30 %}var(--orange){% else %}var(--green){% endif %};border-radius:3px"></div>
-                      </div>
-                      <span class="abuse {% if score>=70 %}hi{% elif score>=30 %}mid{% else %}lo{% endif %}">{{ score }}/100</span>
-                    </div>
-                  </td>
-                  <td>
-                    {% if ip.is_malicious_ip %}
-                      <span class="badge b-critical">⚠ Malicious</span>
-                    {% else %}
-                      <span class="badge b-low">✓ Clean</span>
-                    {% endif %}
-                  </td>
-                </tr>
+          {% if raw_ips %}
+            <!-- osint-box is filled by JS fetch AFTER page loads — no blocking! -->
+            <div id="osint-box">
+              <div class="ip-chips">
+                {% for ip in raw_ips %}
+                <span class="ip-chip">{{ ip }}</span>
                 {% endfor %}
-              </tbody>
-            </table>
-          {% elif raw_ips %}
-            <!-- Public IPs found but no API keys configured -->
-            <div class="ip-chips">
-              {% for ip in raw_ips %}<span class="ip-chip">{{ ip }}</span>{% endfor %}
-            </div>
-            <div style="margin-top:10px;padding:12px 14px;background:var(--yellow-bg);border:1px solid rgba(255,215,0,0.2);border-radius:8px;font-size:0.83rem;color:var(--yellow)">
-              ⚠ OSINT enrichment requires API keys. Add ABUSEIPDB_API_KEY and VIRUSTOTAL_API_KEY to your .env file.
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 0;color:var(--muted);font-size:0.85rem">
+                <div style="width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--cyan);border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0"></div>
+                Loading IP reputation...
+              </div>
             </div>
           {% else %}
             <div class="acc-empty">Nothing found.</div>
@@ -1171,6 +1118,82 @@
   function toggleAcc(head) {
     head.closest('.acc').classList.toggle('open');
   }
+
+  // ── OSINT enrichment loads AFTER page renders ──────────────
+  // This is why page loads fast even with API keys in .env
+  window.addEventListener('load', function() {
+    {% if r.network_indicators and r.network_indicators.hardcoded_ips %}
+    loadOsint();
+    {% endif %}
+  });
+
+  function loadOsint() {
+    var box = document.getElementById('osint-box');
+    if (!box) return;
+
+    // Show loading spinner in IP section
+    box.innerHTML = '<div style="display:flex;align-items:center;gap:10px;padding:12px 0;color:var(--muted);font-size:0.85rem">'
+      + '<div style="width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--cyan);border-radius:50%;animation:spin 0.8s linear infinite"></div>'
+      + 'Loading IP reputation data...</div>';
+
+    fetch('/enrich', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var ips = data.enriched_ips || [];
+        if (ips.length === 0) {
+          box.innerHTML = '<div class="acc-empty">Nothing found.</div>';
+          return;
+        }
+        renderIpTable(box, ips);
+      })
+      .catch(function() {
+        box.innerHTML = '<div class="acc-empty" style="color:var(--orange)">OSINT lookup failed. Check API keys.</div>';
+      });
+  }
+
+  function renderIpTable(box, ips) {
+    // Chip row
+    var chips = ips.map(function(ip) {
+      var cls = ip.is_malicious_ip ? 'ip-chip mal' : 'ip-chip';
+      return '<span class="' + cls + '">' + ip.ip + '</span>';
+    }).join('');
+
+    // Table rows
+    var rows = ips.map(function(ip) {
+      var score    = ip.abuse_score || 0;
+      var scoreClass = score >= 70 ? 'hi' : score >= 30 ? 'mid' : 'lo';
+      var verdict  = ip.is_malicious_ip
+        ? '<span class="badge b-critical">Malicious</span>'
+        : '<span class="badge b-low">Clean</span>';
+      var hosting  = ip.hosting ? '<span style="color:var(--orange)">VPS/DC</span>' : 'No';
+      var country  = (ip.country && ip.country !== 'Unknown')
+        ? ip.country + (ip.country_code ? ' (' + ip.country_code + ')' : '')
+        : '<span style="color:var(--muted2)">Unknown</span>';
+      var cityReg  = [ip.city, ip.region].filter(Boolean).join(', ') || '<span style="color:var(--muted2)">—</span>';
+      var isp      = ip.isp || '—';
+
+      return '<tr>'
+        + '<td class="mono" style="font-weight:700;color:var(--cyan)">' + ip.ip + '</td>'
+        + '<td>' + country + '</td>'
+        + '<td style="font-size:0.8rem;color:var(--muted)">' + cityReg + '</td>'
+        + '<td style="font-size:0.78rem">' + isp + '</td>'
+        + '<td>' + hosting + '</td>'
+        + '<td>'
+        +   '<div style="height:6px;width:100%;background:var(--border2);border-radius:3px;margin-bottom:4px;overflow:hidden">'
+        +     '<div style="height:100%;width:' + score + '%;background:' + (score>=70?'var(--red)':score>=30?'var(--orange)':'var(--green)') + ';border-radius:3px"></div>'
+        +   '</div>'
+        +   '<span class="abuse ' + scoreClass + '">' + score + '/100</span>'
+        + '</td>'
+        + '<td>' + verdict + '</td>'
+        + '</tr>';
+    }).join('');
+
+    box.innerHTML = '<div class="ip-chips">' + chips + '</div>'
+      + '<table class="nt">'
+      + '<thead><tr><th>IP Address</th><th>Country</th><th>City / Region</th><th>ISP</th><th>Hosting</th><th>Abuse Score</th><th>Verdict</th></tr></thead>'
+      + '<tbody>' + rows + '</tbody>'
+      + '</table>';
+  }
 </script>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a0ea299bfc5841e5',t:'MTc4MTk1MjEwMQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>

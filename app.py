@@ -164,19 +164,13 @@ def analyze():
             from engines.android import analyze_apk
             result = analyze_apk(temp_path)
 
-            from osint import enrich_ip_list
             net         = result.get("network_indicators", {})
             public_ips  = net.get("hardcoded_ips", [])
             private_ips = net.get("private_ips", [])
 
-            # Cloud: cap IPs and timeout to stay within platform limits
-            ip_cap      = 5  if IS_CLOUD else 15
-            osint_to    = 3  if IS_CLOUD else 6
-
-            result["enriched_ips"] = (
-                enrich_ip_list(public_ips[:ip_cap], ABUSEIPDB_KEY, VT_KEY, timeout=osint_to)
-                if public_ips else []
-            )
+            # Don't block page load — show IPs immediately
+            # OSINT enrichment happens via /enrich endpoint (AJAX after page loads)
+            result["enriched_ips"] = []
             result["private_ip_entries"] = [
                 {"ip": ip, "label": "Private / Internal IP", "is_private": True}
                 for ip in private_ips
@@ -221,6 +215,52 @@ def analyze():
     threading.Thread(target=cleanup_old_results, daemon=True).start()
 
     return render_template("report.html", r=result)
+
+
+@app.route("/enrich", methods=["POST"])
+def enrich():
+    """
+    Called by JavaScript AFTER the page loads.
+    Runs OSINT in background so page shows instantly.
+    Returns enriched IP data as JSON.
+    """
+    import json as json_lib
+    rid    = session.get("result_id", "")
+    result = load_result(rid)
+    if not result:
+        return {"enriched_ips": []}, 200
+
+    net        = result.get("network_indicators", {})
+    public_ips = net.get("hardcoded_ips", [])
+
+    if not public_ips:
+        return {"enriched_ips": []}, 200
+
+    from osint import enrich_ip_list
+    ip_cap   = 5 if IS_CLOUD else 10
+    osint_to = 3 if IS_CLOUD else 5
+
+    enriched = enrich_ip_list(public_ips[:ip_cap], ABUSEIPDB_KEY, VT_KEY, timeout=osint_to)
+
+    # Save enriched data back to result file
+    result["enriched_ips"] = enriched
+    save_result_to_id(rid, result)
+
+    from flask import jsonify
+    return jsonify({"enriched_ips": enriched})
+
+
+def save_result_to_id(rid: str, result: dict):
+    """Overwrite existing result file with updated data."""
+    if not rid:
+        return
+    path = os.path.join(RESULTS_FOLDER, f"{rid}.json")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            import json as _j
+            _j.dump(result, f, ensure_ascii=False, default=str)
+    except Exception:
+        pass
 
 
 @app.route("/export_pdf", methods=["POST"])
