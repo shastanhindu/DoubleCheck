@@ -1,14 +1,8 @@
 """
 app.py — DoubleCheck Intel Platform v2.1
-Deployment-ready for Railway / Render / Local.
-
-Fixes applied:
-  1. File stored server-side (not cookie) — no 4KB cookie limit
-  2. MAX_CONTENT_LENGTH = 100MB
-  3. OSINT capped on cloud to avoid timeouts
-  4. Gunicorn-compatible (no use_reloader)
-  5. results/ uses /tmp on cloud (writable on all platforms)
-  6. 413 handler for oversized uploads
+502 FIX: Analysis runs in background thread.
+Page loads INSTANTLY. JavaScript polls /status until done.
+Works on Render/Railway free tier (30s request limit bypassed).
 """
 
 import os
@@ -18,7 +12,7 @@ import threading
 import logging
 import socket
 
-from flask import Flask, render_template, request, session, send_file, redirect, url_for
+from flask import Flask, render_template, request, session, send_file, redirect, url_for, jsonify
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 import io
@@ -26,32 +20,22 @@ import io
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "doublecheck-intel-v2-key-2026")
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB
 
-# ── Secret key (stable across restarts if set in env) ──
-app.secret_key = os.getenv("SECRET_KEY", "doublecheck-intel-v2-default-key-change-me")
-
-# ── Upload limit: 100 MB always ──
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-
-# ── Detect cloud platform ──
-# DO NOT use PORT — Windows local machines also have PORT set
+# ── Cloud detection ──
 IS_CLOUD = any([
     os.getenv("RENDER"),
     os.getenv("RAILWAY_ENVIRONMENT"),
     os.getenv("HEROKU_APP_NAME"),
     os.getenv("VESSEL_ENV"),
-    os.getenv("CLOUD_DEPLOY"),     # set this manually in your platform env vars
+    os.getenv("CLOUD_DEPLOY"),
 ])
 
 # ── Folders ──
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# uploads/ — temp file storage (use /tmp on cloud, local dir otherwise)
+BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER  = "/tmp/dc_uploads" if IS_CLOUD else os.path.join(BASE_DIR, "uploads")
-
-# results/ — server-side session storage (use /tmp on cloud)
 RESULTS_FOLDER = "/tmp/dc_results" if IS_CLOUD else os.path.join(BASE_DIR, "results")
-
 os.makedirs(UPLOAD_FOLDER,  exist_ok=True)
 os.makedirs(RESULTS_FOLDER, exist_ok=True)
 
@@ -61,22 +45,23 @@ VT_KEY        = os.getenv("VIRUSTOTAL_API_KEY", "")
 
 ALLOWED_EXTENSIONS = {".apk", ".exe", ".dll"}
 
+# ── In-memory job tracker ──
+# { job_id: "running" | "done" | "error" }
+JOBS = {}
+JOBS_LOCK = threading.Lock()
+
 
 # ══════════════════════════════════════════════════════════════
-# SERVER-SIDE SESSION  (fixes 4KB cookie limit)
+# RESULT FILE HELPERS
 # ══════════════════════════════════════════════════════════════
 
-def save_result(result: dict) -> str:
-    """Save analysis result to a server-side JSON file. Returns result ID."""
-    rid   = uuid.uuid4().hex
-    path  = os.path.join(RESULTS_FOLDER, f"{rid}.json")
+def save_result(rid: str, data: dict):
+    path = os.path.join(RESULTS_FOLDER, f"{rid}.json")
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, default=str)
-    return rid
+        json.dump(data, f, ensure_ascii=False, default=str)
 
 
 def load_result(rid: str) -> dict:
-    """Load analysis result from server-side file."""
     if not rid:
         return {}
     path = os.path.join(RESULTS_FOLDER, f"{rid}.json")
@@ -89,8 +74,7 @@ def load_result(rid: str) -> dict:
         return {}
 
 
-def cleanup_old_results():
-    """Delete result files older than 2 hours — run in background thread."""
+def cleanup_old():
     import time
     try:
         cutoff = time.time() - 7200
@@ -110,14 +94,76 @@ def cleanup_old_results():
 # ══════════════════════════════════════════════════════════════
 
 def detect_file_type(filepath: str) -> str:
-    """Detect by magic bytes — not by extension."""
     with open(filepath, "rb") as f:
         header = f.read(4)
-    if header[:2] == b"PK":
-        return "apk"
-    if header[:2] == b"MZ":
-        return "pe"
+    if header[:2] == b"PK": return "apk"
+    if header[:2] == b"MZ": return "pe"
     return "unknown"
+
+
+# ══════════════════════════════════════════════════════════════
+# BACKGROUND ANALYSIS WORKER
+# ══════════════════════════════════════════════════════════════
+
+def _run_analysis(job_id: str, filepath: str, file_type: str):
+    """
+    Runs in a background thread.
+    Page is already shown to user — no 30s timeout applies here.
+    """
+    with JOBS_LOCK:
+        JOBS[job_id] = "running"
+
+    result = {}
+    try:
+        if file_type == "apk":
+            from engines.android import analyze_apk
+            result = analyze_apk(filepath)
+            result["enriched_ips"]       = []
+            result["private_ip_entries"] = [
+                {"ip": ip, "label": "Private / Internal IP", "is_private": True}
+                for ip in result.get("network_indicators", {}).get("private_ips", [])
+            ]
+
+        elif file_type == "pe":
+            from engines.windows import analyze_windows
+            result = analyze_windows(filepath)
+            result["enriched_ips"]       = []
+            result["private_ip_entries"] = []
+            vd = result.pop("verdict_data", {})
+            result.update(vd)
+
+        # Verdict
+        from verdict import safe_calculate_verdict
+        result["verdict_info"] = safe_calculate_verdict(result)
+
+        # Save result
+        save_result(job_id, result)
+
+        with JOBS_LOCK:
+            JOBS[job_id] = "done"
+
+    except MemoryError:
+        err_result = {"error": "Not enough memory. Try a smaller file (under 15 MB)."}
+        save_result(job_id, err_result)
+        with JOBS_LOCK:
+            JOBS[job_id] = "error"
+
+    except Exception as e:
+        err_result = {"error": str(e)}
+        save_result(job_id, err_result)
+        with JOBS_LOCK:
+            JOBS[job_id] = "error"
+
+    finally:
+        # Delete temp file
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except Exception:
+            pass
+
+    # Cleanup old results
+    threading.Thread(target=cleanup_old, daemon=True).start()
 
 
 # ══════════════════════════════════════════════════════════════
@@ -131,9 +177,13 @@ def index():
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    # Validate
+    """
+    Receives file, saves it, starts background thread, returns INSTANTLY.
+    No more 502 — response is sent before analysis even starts.
+    """
     if "file" not in request.files:
         return render_template("error.html", error="No file uploaded.")
+
     f = request.files["file"]
     if not f or not f.filename:
         return render_template("error.html", error="Empty file submitted.")
@@ -143,130 +193,97 @@ def analyze():
         return render_template("error.html",
             error=f"Unsupported file type '{ext}'. Only APK, EXE, and DLL are supported.")
 
-    # Save temp file
+    # Save file
     safe_name = f"{uuid.uuid4().hex}_{secure_filename(f.filename)}"
     temp_path = os.path.join(UPLOAD_FOLDER, safe_name)
     f.save(temp_path)
 
-    # Size check (actual bytes on disk)
+    # Size check
     actual_mb = os.path.getsize(temp_path) / (1024 * 1024)
     if actual_mb > 100:
         os.remove(temp_path)
         return render_template("error.html",
             error=f"File too large ({actual_mb:.1f} MB). Maximum is 100 MB.")
 
-    result    = {}
     file_type = detect_file_type(temp_path)
-
-    try:
-        # ── APK ──
-        if file_type == "apk":
-            from engines.android import analyze_apk
-            result = analyze_apk(temp_path)
-
-            net         = result.get("network_indicators", {})
-            public_ips  = net.get("hardcoded_ips", [])
-            private_ips = net.get("private_ips", [])
-
-            # Don't block page load — show IPs immediately
-            # OSINT enrichment happens via /enrich endpoint (AJAX after page loads)
-            result["enriched_ips"] = []
-            result["private_ip_entries"] = [
-                {"ip": ip, "label": "Private / Internal IP", "is_private": True}
-                for ip in private_ips
-            ]
-
-        # ── Windows PE ──
-        elif file_type == "pe":
-            from engines.windows import analyze_windows
-            result = analyze_windows(temp_path)
-            result["enriched_ips"]       = []
-            result["private_ip_entries"] = []
-            vd = result.pop("verdict_data", {})
-            result.update(vd)
-
-        # ── Unknown ──
-        else:
-            os.remove(temp_path)
-            return render_template("error.html",
-                error="File format not recognized. Upload a valid APK, EXE, or DLL.")
-
-    except MemoryError:
+    if file_type == "unknown":
+        os.remove(temp_path)
         return render_template("error.html",
-            error="Not enough memory to analyze this file. Try a smaller APK (under 20 MB).")
-    except Exception as e:
-        result.setdefault("errors", []).append(str(e))
-    finally:
-        try:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-        except Exception:
-            pass
+            error="File format not recognized. Upload a valid APK, EXE, or DLL.")
 
-    # Verdict
-    from verdict import safe_calculate_verdict
-    result["verdict_info"] = safe_calculate_verdict(result)
+    # Create job ID
+    job_id = uuid.uuid4().hex
+    session["job_id"] = job_id
 
-    # Save server-side, store only ID in cookie
-    rid = save_result(result)
-    session["result_id"] = rid
+    # Start analysis in BACKGROUND — page returns immediately
+    t = threading.Thread(
+        target=_run_analysis,
+        args=(job_id, temp_path, file_type),
+        daemon=True
+    )
+    t.start()
 
-    # Background cleanup
-    threading.Thread(target=cleanup_old_results, daemon=True).start()
+    # Return loading page RIGHT AWAY — no waiting
+    return render_template("loading.html", job_id=job_id)
 
+
+@app.route("/status/<job_id>")
+def status(job_id: str):
+    """Polled by JavaScript every 2 seconds to check if analysis is done."""
+    with JOBS_LOCK:
+        state = JOBS.get(job_id, "unknown")
+
+    # Also check result file (handles server restart edge case)
+    if state == "unknown":
+        result = load_result(job_id)
+        if result:
+            state = "error" if "error" in result and len(result) == 1 else "done"
+
+    return jsonify({"status": state})
+
+
+@app.route("/report/<job_id>")
+def report(job_id: str):
+    """Called by JS when status == done. Returns the full report page."""
+    result = load_result(job_id)
+    if not result:
+        return render_template("error.html", error="Result not found. Please re-upload.")
+    if "error" in result and len(result) == 1:
+        return render_template("error.html", error=result["error"])
+
+    session["job_id"] = job_id
     return render_template("report.html", r=result)
 
 
 @app.route("/enrich", methods=["POST"])
 def enrich():
-    """
-    Called by JavaScript AFTER the page loads.
-    Runs OSINT in background so page shows instantly.
-    Returns enriched IP data as JSON.
-    """
-    import json as json_lib
-    rid    = session.get("result_id", "")
-    result = load_result(rid)
+    """OSINT enrichment — called by JS after report loads."""
+    job_id = session.get("job_id", "")
+    result = load_result(job_id)
     if not result:
-        return {"enriched_ips": []}, 200
+        return jsonify({"enriched_ips": []})
 
     net        = result.get("network_indicators", {})
     public_ips = net.get("hardcoded_ips", [])
-
     if not public_ips:
-        return {"enriched_ips": []}, 200
+        return jsonify({"enriched_ips": []})
 
     from osint import enrich_ip_list
     ip_cap   = 5 if IS_CLOUD else 10
     osint_to = 3 if IS_CLOUD else 5
-
     enriched = enrich_ip_list(public_ips[:ip_cap], ABUSEIPDB_KEY, VT_KEY, timeout=osint_to)
 
-    # Save enriched data back to result file
+    # Save back
     result["enriched_ips"] = enriched
-    save_result_to_id(rid, result)
+    save_result(job_id, result)
 
-    from flask import jsonify
     return jsonify({"enriched_ips": enriched})
-
-
-def save_result_to_id(rid: str, result: dict):
-    """Overwrite existing result file with updated data."""
-    if not rid:
-        return
-    path = os.path.join(RESULTS_FOLDER, f"{rid}.json")
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            import json as _j
-            _j.dump(result, f, ensure_ascii=False, default=str)
-    except Exception:
-        pass
 
 
 @app.route("/export_pdf", methods=["POST"])
 def export_pdf():
-    rid    = session.get("result_id", "")
-    result = load_result(rid)
+    job_id = session.get("job_id", "")
+    result = load_result(job_id)
     if not result:
         return redirect(url_for("index"))
     try:
@@ -282,7 +299,6 @@ def export_pdf():
         return render_template("error.html", error=f"PDF generation failed: {e}")
 
 
-# ── 413 handler ──
 @app.errorhandler(413)
 def file_too_large(e):
     return render_template("error.html",
@@ -294,13 +310,11 @@ def file_too_large(e):
 # ══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    # Suppress werkzeug's default banner (which shows 127.0.0.1)
     log = logging.getLogger("werkzeug")
     log.setLevel(logging.ERROR)
 
     port = int(os.getenv("PORT", 5000))
 
-    # Print only the LAN IP
     try:
         lan_ip = socket.gethostbyname(socket.gethostname())
     except Exception:
@@ -311,9 +325,4 @@ if __name__ == "__main__":
     print(f"  Open →  http://{lan_ip}:{port}")
     print(f"  Press CTRL+C to stop\n")
 
-    app.run(
-        debug=False,           # always off — avoids reloader printing 127 link
-        host="0.0.0.0",
-        port=port,
-        use_reloader=False,    # must be False — reloader prints 127 link
-    )
+    app.run(debug=False, host="0.0.0.0", port=port, use_reloader=False)
