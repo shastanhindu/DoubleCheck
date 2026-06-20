@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: doublecheck-intel
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --timeout 300 --bind 0.0.0.0:$PORT --preload
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CLOUD_DEPLOY
+        value: "true"
+      - key: ABUSEIPDB_API_KEY
+        sync: false
+      - key: VIRUSTOTAL_API_KEY
+        sync: false

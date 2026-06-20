@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DoubleCheck — Forensic Analysis</title>
+  <style>
+    :root {
+      --bg:      #0d0d0d;
+      --surface: #161616;
+      --card:    #1e1e1e;
+      --border:  #2a2a2a;
+      --border2: #333;
+      --cyan:    #00d4ff;
+      --cyan-d:  #00a8cc;
+      --gold:    #c9932a;
+      --gold-d:  #a87520;
+      --text:    #e8e8e8;
+      --muted:   #888;
+      --muted2:  #555;
+      --red:     #ff4d4d;
+      --orange:  #ff8c00;
+      --yellow:  #ffd700;
+      --green:   #00c853;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    /* LOGO */
+    .logo {
+      font-size: 3rem;
+      font-weight: 900;
+      color: var(--cyan);
+      letter-spacing: -1px;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .logo-sub {
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-align: center;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .tagline {
+      color: var(--muted);
+      font-size: 0.95rem;
+      text-align: center;
+      line-height: 1.7;
+      max-width: 520px;
+      margin: 0 auto 36px;
+    }
+
+    /* UPLOAD CARD */
+    .upload-wrap {
+      width: 100%;
+      max-width: 580px;
+    }
+    .drop-zone {
+      border: 2px dashed var(--border2);
+      border-radius: 14px;
+      background: var(--card);
+      padding: 48px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      margin-bottom: 16px;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--cyan);
+      background: #1a2a2e;
+    }
+    .drop-icon { font-size: 3rem; }
+    .drop-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .drop-hint { font-size: 0.85rem; color: var(--muted); }
+    .drop-types {
+      display: flex; gap: 8px; margin-top: 6px;
+    }
+    .type-badge {
+      background: #252525;
+      border: 1px solid var(--border2);
+      color: var(--muted);
+      padding: 3px 12px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-family: monospace;
+      font-weight: 600;
+    }
+    input[type="file"] { display: none; }
+
+    /* FILE SELECTED STATE */
+    .file-selected {
+      display: none;
+      background: var(--card);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 16px;
+      align-items: center;
+      gap: 14px;
+    }
+    .file-selected.show { display: flex; }
+    .sel-icon { font-size: 2rem; }
+    .sel-info { flex: 1; }
+    .sel-name { font-weight: 600; font-size: 0.95rem; }
+    .sel-size { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+    .sel-clear {
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-size: 1.1rem; padding: 4px 8px;
+    }
+    .sel-clear:hover { color: var(--red); }
+
+    /* BUTTON */
+    .run-btn {
+      width: 100%;
+      padding: 16px;
+      background: var(--gold);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: not-allowed;
+      opacity: 0.45;
+      letter-spacing: 0.04em;
+      transition: all 0.2s;
+    }
+    .run-btn.active {
+      opacity: 1;
+      cursor: pointer;
+      background: var(--gold);
+    }
+    .run-btn.active:hover {
+      background: var(--gold-d);
+      transform: translateY(-1px);
+    }
+
+    /* FEATURES ROW */
+    .features {
+      display: flex;
+      gap: 20px;
+      margin-top: 28px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .feat {
+      display: flex; align-items: center; gap: 6px;
+      color: var(--muted); font-size: 0.82rem;
+    }
+    .feat::before { content: "•"; color: var(--muted2); }
+
+    /* LOADING OVERLAY */
+    .overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.88);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+    }
+    .overlay.show { display: flex; }
+    .loading-box {
+      background: var(--card);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      padding: 40px 52px;
+      text-align: center;
+      min-width: 340px;
+    }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3px solid var(--border2);
+      border-top-color: var(--cyan);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-title {
+      font-size: 1rem; font-weight: 700;
+      color: var(--text); margin-bottom: 6px;
+    }
+    .loading-file {
+      font-size: 0.8rem; color: var(--muted);
+      font-family: monospace; margin-bottom: 24px;
+    }
+    .steps { text-align: left; }
+    .step {
+      padding: 7px 12px; border-radius: 6px;
+      font-size: 0.85rem; color: var(--muted2);
+      margin-bottom: 4px; transition: all 0.3s;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .step .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted2); flex-shrink: 0;
+    }
+    .step.active { color: var(--cyan); }
+    .step.active .dot { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+    .step.done { color: var(--green); }
+    .step.done .dot { background: var(--green); }
+  </style>
+</head>
+<body>
+
+  <div class="logo">DoubleCheck</div>
+  <div class="logo-sub">Forensic Analysis Engine · v2.1</div>
+  <p class="tagline">
+    Upload an APK, EXE, or DLL for deep static analysis.<br>
+    Permissions, APIs, IPs, URLs, phone numbers, credentials,
+    behaviors — everything extracted and scored automatically.
+  </p>
+
+  <div class="upload-wrap">
+    <form id="uploadForm" action="/analyze" method="POST" enctype="multipart/form-data">
+      <input type="file" id="fileInput" name="file" accept=".apk,.exe,.dll">
+
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-icon">📁</div>
+        <div class="drop-title">Choose sample file</div>
+        <div class="drop-hint">or drag &amp; drop here</div>
+        <div class="drop-types">
+          <span class="type-badge">APK</span>
+          <span class="type-badge">EXE</span>
+          <span class="type-badge">DLL</span>
+        </div>
+        <div style="margin-top:10px;font-size:0.75rem;color:#555">
+          Max size: {% if is_cloud %}30 MB (cloud){% else %}100 MB (local){% endif %}
+        </div>
+      </div>
+
+      <div class="file-selected" id="fileSelected">
+        <span class="sel-icon" id="selIcon">📦</span>
+        <div class="sel-info">
+          <div class="sel-name" id="selName"></div>
+          <div class="sel-size" id="selSize"></div>
+        </div>
+        <button type="button" class="sel-clear" id="selClear">✕</button>
+      </div>
+
+      <button type="submit" class="run-btn" id="runBtn" disabled>Run Analysis</button>
+    </form>
+
+    <div class="features">
+      <span class="feat">Deterministic scoring</span>
+      <span class="feat">OSINT enrichment</span>
+      <span class="feat">MITRE mapping</span>
+      <span class="feat">PDF export</span>
+    </div>
+  </div>
+
+  <!-- LOADING OVERLAY -->
+  <div class="overlay" id="overlay">
+    <div class="loading-box">
+      <div class="spinner"></div>
+      <div class="loading-title">Analyzing sample...</div>
+      <div class="loading-file" id="loadingFile"></div>
+      <div class="steps">
+        <div class="step active" id="s1"><span class="dot"></span>Parsing file structure</div>
+        <div class="step" id="s2"><span class="dot"></span>Extracting permissions &amp; APIs</div>
+        <div class="step" id="s3"><span class="dot"></span>Scanning network indicators</div>
+        <div class="step" id="s4"><span class="dot"></span>OSINT enrichment (IPs)</div>
+        <div class="step" id="s5"><span class="dot"></span>Correlating behaviors</div>
+        <div class="step" id="s6"><span class="dot"></span>Calculating verdict</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const dropZone    = document.getElementById('dropZone');
+  const fileInput   = document.getElementById('fileInput');
+  const fileSelected= document.getElementById('fileSelected');
+  const selIcon     = document.getElementById('selIcon');
+  const selName     = document.getElementById('selName');
+  const selSize     = document.getElementById('selSize');
+  const selClear    = document.getElementById('selClear');
+  const runBtn      = document.getElementById('runBtn');
+  const uploadForm  = document.getElementById('uploadForm');
+  const overlay     = document.getElementById('overlay');
+  const loadingFile = document.getElementById('loadingFile');
+
+  const EXT_ICONS = { apk: '📱', exe: '⚙️', dll: '📚' };
+
+  dropZone.addEventListener('click',     () => fileInput.click());
+  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) setFile(fileInput.files[0]);
+  });
+
+  function setFile(file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    selIcon.textContent = EXT_ICONS[ext] || '📄';
+    selName.textContent = file.name;
+    selSize.textContent = fmtSize(file.size) + ' — ' + ext.toUpperCase();
+    dropZone.style.display    = 'none';
+    fileSelected.classList.add('show');
+    runBtn.disabled = false;
+    runBtn.classList.add('active');
+  }
+
+  selClear.addEventListener('click', () => {
+    fileInput.value = '';
+    dropZone.style.display = 'flex';
+    fileSelected.classList.remove('show');
+    runBtn.disabled = true;
+    runBtn.classList.remove('active');
+  });
+
+  function fmtSize(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    return (b/1048576).toFixed(2) + ' MB';
+  }
+
+  uploadForm.addEventListener('submit', () => {
+    loadingFile.textContent = selName.textContent;
+    overlay.classList.add('show');
+    const steps = ['s1','s2','s3','s4','s5','s6'];
+    let i = 0;
+    const iv = setInterval(() => {
+      if (i > 0) document.getElementById(steps[i-1]).classList.replace('active','done');
+      if (i < steps.length) {
+        document.getElementById(steps[i]).classList.add('active');
+        i++;
+      } else clearInterval(iv);
+    }, 3500);
+  });
+</script>
+</body>
+</html>

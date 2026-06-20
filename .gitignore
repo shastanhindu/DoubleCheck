@@ -1,0 +1,62 @@
+# ── Python ──────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual environments ─────────────────────────────
+.env
+.venv/
+venv/
+env/
+ENV/
+
+# ── API Keys / Secrets — NEVER commit ───────────────
+.env.local
+.env.production
+.env.development
+*.env
+
+# ── Project temp folders (auto-created by app) ───────
+uploads/
+results/
+
+# ── OS junk ─────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── IDE / Editor ─────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+
+# ── Malware samples — NEVER push to GitHub ───────────
+*.apk
+*.exe
+*.dll
+*.dex
+*.so
+*.ipa
+
+# ── Logs ─────────────────────────────────────────────
+*.log
+logs/
+
+# ── pytest / coverage ────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/

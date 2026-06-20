@@ -1,0 +1,1176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DoubleCheck — Forensic Report</title>
+  <style>
+    :root {
+      --bg:       #0d0d0d;
+      --surface:  #111;
+      --card:     #1a1a1a;
+      --card2:    #202020;
+      --border:   #2a2a2a;
+      --border2:  #333;
+      --cyan:     #00d4ff;
+      --gold:     #c9932a;
+      --text:     #e8e8e8;
+      --muted:    #888;
+      --muted2:   #555;
+      --red:      #ff4444;
+      --red-bg:   rgba(255,68,68,0.08);
+      --orange:   #ff8c00;
+      --orange-bg:rgba(255,140,0,0.08);
+      --yellow:   #ffd700;
+      --yellow-bg:rgba(255,215,0,0.08);
+      --green:    #00c853;
+      --green-bg: rgba(0,200,83,0.08);
+      --purple:   #a78bfa;
+      --purple-bg:rgba(167,139,250,0.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── TOP BAR ── */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px; height: 56px;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .tb-brand { font-size: 1.1rem; font-weight: 800; color: var(--cyan); }
+    .tb-sub   { font-size: 0.72rem; color: var(--muted); }
+    .tb-actions { display: flex; gap: 10px; align-items: center; }
+    .btn-back {
+      background: none; border: 1px solid var(--border2);
+      color: var(--muted); padding: 6px 14px; border-radius: 6px;
+      cursor: pointer; font-size: 0.82rem; text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-back:hover { border-color: var(--cyan); color: var(--cyan); }
+    .btn-pdf {
+      background: var(--gold); border: none;
+      color: #fff; padding: 7px 16px; border-radius: 6px;
+      cursor: pointer; font-size: 0.82rem; font-weight: 700;
+      transition: background 0.2s;
+    }
+    .btn-pdf:hover { background: #a87520; }
+
+    /* ── LAYOUT ── */
+    .layout {
+      display: flex; gap: 0;
+      max-height: calc(100vh - 56px);
+    }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      width: 280px; flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 20px 0;
+      height: calc(100vh - 56px);
+      position: sticky; top: 56px;
+    }
+    .sb-section { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .sb-section:last-child { border-bottom: none; }
+    .sb-label { font-size: 0.68rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+    .sb-value { font-size: 0.88rem; color: var(--text); font-weight: 500; word-break: break-all; }
+    .sb-mono  { font-family: monospace; font-size: 0.78rem; color: var(--muted); word-break: break-all; }
+
+    .perm-stat { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+    .pstat {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 5px 10px; border-radius: 6px; font-size: 0.82rem; font-weight: 600;
+    }
+    .pstat.cr { background: var(--red-bg);    color: var(--red);    border: 1px solid rgba(255,68,68,0.2); }
+    .pstat.hi { background: var(--orange-bg); color: var(--orange); border: 1px solid rgba(255,140,0,0.2); }
+    .pstat.md { background: var(--yellow-bg); color: var(--yellow); border: 1px solid rgba(255,215,0,0.2); }
+    .pstat span { font-size: 0.72rem; font-weight: 400; }
+
+    .fw-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+    .fw-tag {
+      background: var(--card2); border: 1px solid var(--border2);
+      color: var(--muted); padding: 2px 9px; border-radius: 12px; font-size: 0.75rem;
+    }
+
+    .cert-notice {
+      font-size: 0.8rem; line-height: 1.5; color: var(--muted);
+      background: var(--card2); border-radius: 8px; padding: 10px 12px;
+      border-left: 3px solid var(--orange);
+    }
+
+    /* ── MAIN ── */
+    .main { flex: 1; overflow-y: auto; height: calc(100vh - 56px); }
+
+    /* ── VERDICT BANNER ── */
+    .verdict {
+      padding: 24px 28px;
+      display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+    }
+    .verdict.vred    { background: linear-gradient(135deg, #200808 0%, #1a0000 100%); border-left: 4px solid var(--red); }
+    .verdict.vorange { background: linear-gradient(135deg, #1e1000 0%, #180c00 100%); border-left: 4px solid var(--orange); }
+    .verdict.vyellow { background: linear-gradient(135deg, #1a1700 0%, #141200 100%); border-left: 4px solid var(--yellow); }
+    .verdict.vgreen  { background: linear-gradient(135deg, #001a0a 0%, #001508 100%); border-left: 4px solid var(--green); }
+    .v-icon { font-size: 2.8rem; }
+    .v-info { flex: 1; }
+    .v-verdict { font-size: 1.35rem; font-weight: 800; margin-bottom: 4px; }
+    .vred    .v-verdict { color: var(--red); }
+    .vorange .v-verdict { color: var(--orange); }
+    .vyellow .v-verdict { color: var(--yellow); }
+    .vgreen  .v-verdict { color: var(--green); }
+    .v-scores { font-size: 0.88rem; color: var(--muted); }
+    .v-bars { min-width: 220px; }
+    .vbar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 0.8rem; color: var(--muted); }
+    .vbar { flex: 1; height: 8px; background: rgba(255,255,255,0.07); border-radius: 4px; overflow: hidden; }
+    .vbar-fill { height: 100%; border-radius: 4px; transition: width 1.2s ease; }
+    .vbar-risk { background: var(--red); }
+    .vbar-conf { background: var(--cyan); }
+
+    /* ── ANALYST SUMMARY ── */
+    .summary-box {
+      margin: 20px 24px;
+      background: var(--card);
+      border: 1px solid var(--border2);
+      border-left: 3px solid var(--gold);
+      border-radius: 10px;
+      padding: 16px 18px;
+    }
+    .summary-label {
+      font-size: 0.7rem; font-weight: 700; color: var(--gold);
+      text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 8px;
+    }
+    .summary-text { font-size: 0.92rem; color: var(--text); line-height: 1.6; }
+
+    /* ── TABS ── */
+    .tabs-wrap { padding: 0 24px; border-bottom: 1px solid var(--border); }
+    .tabs { display: flex; gap: 0; }
+    .tab {
+      padding: 14px 22px; cursor: pointer; font-size: 0.88rem;
+      color: var(--muted); border-bottom: 2px solid transparent;
+      transition: all 0.2s; font-weight: 500;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--text); border-bottom-color: var(--cyan); font-weight: 600; }
+    .tab-count {
+      background: var(--card2); border: 1px solid var(--border2);
+      color: var(--muted); padding: 1px 7px; border-radius: 10px;
+      font-size: 0.72rem;
+    }
+    .tab.active .tab-count { background: var(--cyan); color: #000; border-color: var(--cyan); }
+
+    /* ── TAB PANELS ── */
+    .tab-content { padding: 20px 24px; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ── ACCORDION SECTIONS ── */
+    .acc { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+    .acc-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 18px; cursor: pointer; user-select: none;
+      transition: background 0.15s;
+    }
+    .acc-head:hover { background: var(--card2); }
+    .acc-title { font-size: 0.95rem; font-weight: 600; }
+    .acc-arrow { color: var(--muted); font-size: 0.7rem; transition: transform 0.2s; }
+    .acc.open .acc-arrow { transform: rotate(180deg); }
+    .acc-body { display: none; padding: 0 18px 18px; }
+    .acc.open .acc-body { display: block; }
+    .acc-empty { color: var(--muted); font-size: 0.875rem; padding: 10px 0; }
+
+    /* ── BEHAVIOR CARD ── */
+    .beh-card {
+      border: 1px solid var(--border2);
+      border-radius: 10px; padding: 14px 16px;
+      margin-bottom: 10px; position: relative;
+      overflow: hidden;
+    }
+    .beh-card::before {
+      content: '';
+      position: absolute; left: 0; top: 0; bottom: 0;
+      width: 4px;
+    }
+    .beh-card.sev-critical::before { background: var(--red); }
+    .beh-card.sev-high::before     { background: var(--orange); }
+    .beh-card.sev-medium::before   { background: var(--yellow); }
+    .beh-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+    .beh-name { font-weight: 700; font-size: 0.92rem; }
+    .beh-desc { font-size: 0.85rem; color: var(--muted); line-height: 1.5; margin-bottom: 8px; }
+    .beh-inds { display: flex; flex-wrap: wrap; gap: 6px; }
+    .ind-chip {
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border2);
+      color: var(--muted); padding: 2px 9px; border-radius: 4px; font-size: 0.76rem; font-family: monospace;
+    }
+
+    /* ── API ROW ── */
+    .api-item {
+      border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px;
+      margin-bottom: 8px;
+      border-left-width: 3px;
+    }
+    .api-item.risk-critical { border-left-color: var(--red); background: var(--red-bg); }
+    .api-item.risk-high     { border-left-color: var(--orange); background: var(--orange-bg); }
+    .api-item.risk-medium   { border-left-color: var(--yellow); background: var(--yellow-bg); }
+    .api-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+    .api-name { font-family: monospace; font-weight: 600; font-size: 0.88rem; }
+    .api-exp  { font-size: 0.83rem; color: var(--muted); margin-bottom: 4px; }
+    .api-callers { font-size: 0.76rem; color: var(--muted2); font-family: monospace; }
+
+    /* ── PERMISSION ROW ── */
+    .perm-item {
+      border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px;
+      margin-bottom: 8px;
+    }
+    .perm-top { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap; }
+    .perm-short { font-weight: 600; font-size: 0.9rem; }
+    .perm-full  { font-family: monospace; font-size: 0.76rem; color: var(--muted2); margin-bottom: 4px; }
+    .perm-exp   { font-size: 0.83rem; color: var(--muted); }
+    .perm-group { margin-bottom: 18px; }
+    .perm-group-label {
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; margin-bottom: 8px; padding: 4px 10px;
+      border-radius: 4px; display: inline-block;
+    }
+    .gl-critical { background: var(--red-bg);    color: var(--red);    border: 1px solid rgba(255,68,68,0.3); }
+    .gl-high     { background: var(--orange-bg); color: var(--orange); border: 1px solid rgba(255,140,0,0.3); }
+    .gl-medium   { background: var(--yellow-bg); color: var(--yellow); border: 1px solid rgba(255,215,0,0.3); }
+
+    /* ── BADGES ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px; border-radius: 4px;
+      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    }
+    .b-critical { background: var(--red-bg);    color: var(--red);    border: 1px solid rgba(255,68,68,0.4); }
+    .b-high     { background: var(--orange-bg); color: var(--orange); border: 1px solid rgba(255,140,0,0.4); }
+    .b-medium   { background: var(--yellow-bg); color: var(--yellow); border: 1px solid rgba(255,215,0,0.4); }
+    .b-low      { background: var(--green-bg);  color: var(--green);  border: 1px solid rgba(0,200,83,0.4); }
+    .b-mitre    { background: var(--purple-bg); color: var(--purple); border: 1px solid rgba(167,139,250,0.3); font-family: monospace; }
+
+    /* ── NETWORK TABLES ── */
+    .nt { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    .nt th {
+      font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--muted); padding: 8px 12px;
+      border-bottom: 1px solid var(--border); text-align: left;
+    }
+    .nt td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .nt tr:last-child td { border-bottom: none; }
+    .nt tr:hover td { background: rgba(255,255,255,0.02); }
+    .mono { font-family: monospace; }
+
+    /* IP chips */
+    .ip-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .ip-chip {
+      background: var(--card2); border: 1px solid var(--border2);
+      color: var(--muted); padding: 4px 12px; border-radius: 20px;
+      font-size: 0.82rem; font-family: monospace;
+    }
+    .ip-chip.mal { border-color: rgba(255,68,68,0.5); color: var(--red); background: var(--red-bg); }
+
+    /* URL list */
+    .url-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border);
+      margin-bottom: 6px; background: var(--card);
+    }
+    .url-item.susp { border-color: rgba(255,140,0,0.3); background: var(--orange-bg); }
+    .url-text { flex: 1; word-break: break-all; font-family: monospace; font-size: 0.8rem; color: var(--muted); }
+
+    /* Phone / domain chips */
+    .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      padding: 4px 12px; border-radius: 20px; font-size: 0.8rem;
+      border: 1px solid var(--border2); background: var(--card2); color: var(--muted);
+    }
+    .chip.phone { border-color: rgba(0,200,83,0.4); color: var(--green); background: var(--green-bg); }
+
+    /* ── INTEL ALERTS ── */
+    .alert {
+      border-radius: 10px; padding: 14px 16px;
+      margin-bottom: 10px; border-left: 3px solid;
+    }
+    .alert.critical { background: var(--red-bg);    border-color: var(--red); }
+    .alert.high     { background: var(--orange-bg); border-color: var(--orange); }
+    .alert.medium   { background: var(--yellow-bg); border-color: var(--yellow); }
+    .alert-title { font-weight: 700; font-size: 0.88rem; margin-bottom: 4px; }
+    .alert-val  { font-family: monospace; font-size: 0.8rem; color: var(--muted); margin-top: 4px; word-break: break-all; }
+
+    /* ── CRED TABLE ── */
+    .cred-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .cred-table th { text-align: left; padding: 7px 12px; font-size: 0.72rem; color: var(--muted); border-bottom: 1px solid var(--border); text-transform: uppercase; }
+    .cred-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+    .cred-table tr:last-child td { border-bottom: none; }
+
+    /* ── SECTION SUB-HEADER ── */
+    .sub-hdr {
+      font-size: 0.78rem; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin: 16px 0 8px;
+    }
+    .sub-hdr:first-child { margin-top: 4px; }
+
+    /* ── ABUSE SCORE ── */
+    .abuse { font-weight: 700; font-size: 0.85rem; }
+    .abuse.lo  { color: var(--green); }
+    .abuse.mid { color: var(--yellow); }
+    .abuse.hi  { color: var(--red); }
+
+    /* ── RULE ROWS ── */
+    .rule-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px; border-radius: 8px;
+      border: 1px solid var(--border); margin-bottom: 6px; font-size: 0.83rem;
+    }
+    .rule-id { font-family: monospace; font-weight: 700; color: var(--cyan); min-width: 36px; }
+    .rule-label { flex: 1; color: var(--text); }
+    .rule-impact { font-weight: 700; white-space: nowrap; }
+    .rule-impact.pos { color: var(--red); }
+    .rule-impact.neg { color: var(--green); }
+    .rule-type { font-size: 0.7rem; color: var(--muted2); }
+
+    /* ── MANIFEST GRID ── */
+    .man-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .man-box { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; text-align: center; }
+    .man-count { font-size: 2rem; font-weight: 800; color: var(--cyan); }
+    .man-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; margin-bottom: 10px; }
+    .man-name  { font-size: 0.7rem; color: var(--muted2); font-family: monospace; text-align: left; margin-top: 4px; }
+
+    /* ── PE SECTIONS ── */
+    .entropy-bar { display: inline-block; width: 60px; height: 6px; background: var(--border2); border-radius: 3px; vertical-align: middle; margin-right: 6px; overflow: hidden; }
+    .entropy-fill { height: 100%; border-radius: 3px; }
+    .ef-hi  { background: var(--red); }
+    .ef-med { background: var(--yellow); }
+    .ef-lo  { background: var(--green); }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .man-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+{% set vi = r.verdict_info %}
+{% set vc = vi.verdict_color %}
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div>
+    <div class="tb-brand">DoubleCheck</div>
+    <div class="tb-sub">Forensic report v2.1</div>
+  </div>
+  <div class="tb-actions">
+    <a href="/" class="btn-back">← New Analysis</a>
+    <form action="/export_pdf" method="POST" style="display:inline">
+      <button type="submit" class="btn-pdf">⬇ Export PDF</button>
+    </form>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+
+    <div class="sb-section">
+      <div class="sb-label">Case ID (SHA-256)</div>
+      <div class="sb-mono">{{ r.sha256[:20] }}…</div>
+    </div>
+
+    {% if r.app_info %}
+    <div class="sb-section">
+      <div class="sb-label">Package Name</div>
+      <div class="sb-mono">{{ r.app_info.package_name }}</div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-label">App Name</div>
+      <div class="sb-value">{{ r.app_info.app_name }}</div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-label">Version</div>
+      <div class="sb-value">{{ r.app_info.version_name }} (build {{ r.app_info.version_code }})</div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-label">SDK</div>
+      <div class="sb-value">Min {{ r.app_info.min_sdk }} → Target {{ r.app_info.target_sdk }}</div>
+    </div>
+    {% endif %}
+
+    {% if r.file_info %}
+    <div class="sb-section">
+      <div class="sb-label">Architecture</div>
+      <div class="sb-value">{{ r.file_info.get('arch', 'Unknown') }}</div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-label">Entry Point</div>
+      <div class="sb-mono">{{ r.file_info.get('entry_point', 'N/A') }}</div>
+    </div>
+    {% endif %}
+
+    {% if r.frameworks %}
+    <div class="sb-section">
+      <div class="sb-label">Framework</div>
+      <div class="fw-tags">
+        {% for fw in r.frameworks %}<span class="fw-tag">{{ fw }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if r.certificate and not r.certificate.get('error') %}
+    <div class="sb-section">
+      <div class="sb-label">Certificate</div>
+      <div class="cert-notice">{{ r.certificate.notice or 'No issues detected.' }}</div>
+    </div>
+    {% endif %}
+
+    <div class="sb-section">
+      <div class="sb-label">File</div>
+      <div class="sb-value">{{ r.filename }}</div>
+      <div class="sb-mono">{{ r.file_type }} · {{ r.file_size_mb }} MB</div>
+    </div>
+
+    {% if r.permissions %}
+    <div class="sb-section">
+      <div class="sb-label">Permission Summary</div>
+      <div class="perm-stat">
+        <div class="pstat cr">{{ r.permissions.critical_count }} <span>Critical</span></div>
+        <div class="pstat hi">{{ r.permissions.high_count }} <span>High</span></div>
+        <div class="pstat md">{{ r.permissions.medium_count }} <span>Medium</span></div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if r.errors %}
+    <div class="sb-section">
+      <div class="sb-label" style="color:var(--yellow)">⚠ Analysis Warnings</div>
+      {% for e in r.errors %}
+      <div class="sb-mono" style="margin-top:4px;color:var(--muted)">{{ e }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </aside>
+
+  <!-- ── MAIN CONTENT ── -->
+  <main class="main">
+
+    <!-- VERDICT -->
+    <div class="verdict v{{ vc }}">
+      <div class="v-icon">{{ vi.verdict_icon }}</div>
+      <div class="v-info">
+        <div class="v-verdict">{{ vi.verdict }}</div>
+        <div class="v-scores">
+          Risk Score: <strong>{{ vi.risk_score }}/100</strong>
+          &nbsp;·&nbsp;
+          Confidence: <strong>{{ vi.confidence }}/100</strong>
+          &nbsp;·&nbsp;
+          {{ r.file_type }} · {{ r.file_size_mb }} MB
+        </div>
+      </div>
+      <div class="v-bars">
+        <div class="vbar-row">
+          <span style="width:40px">Risk</span>
+          <div class="vbar"><div class="vbar-fill vbar-risk" style="width:{{ vi.risk_score }}%"></div></div>
+          <span>{{ vi.risk_score }}</span>
+        </div>
+        <div class="vbar-row">
+          <span style="width:40px">Conf</span>
+          <div class="vbar"><div class="vbar-fill vbar-conf" style="width:{{ vi.confidence }}%"></div></div>
+          <span>{{ vi.confidence }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANALYST SUMMARY -->
+    <div class="summary-box">
+      <div class="summary-label">Analyst Summary</div>
+      <div class="summary-text">
+        {% set vi2 = r.verdict_info %}
+        {% set nb = r.behaviors|length %}
+        {% set nc = r.permissions.critical_count if r.permissions else 0 %}
+        {% set na = r.suspicious_apis|length %}
+        {% set strings = r.string_intelligence or {} %}
+        {% if vi2.verdict_short == 'MALICIOUS' %}
+          This sample exhibits strong indicators of malicious intent. Detected {{ nb }} attack behavior chain(s), {{ nc }} critical permission(s), and {{ na }} suspicious API call(s).
+          {% if strings.telegram_tokens %}Hardcoded Telegram bot tokens confirm C2 infrastructure. {% endif %}
+          Immediate investigation recommended.
+        {% elif vi2.verdict_short == 'SUSPICIOUS' %}
+          The app has {% if nc > 0 %}{{ nc }} critical permission(s) and {% endif %}uses highly suspicious infrastructure
+          {% if strings.telegram_tokens %}(Telegram bots detected){% endif %}. Likely a specialized stealer or dropper. Manual review recommended.
+        {% elif vi2.verdict_short == 'PUA' %}
+          Potentially unwanted application. Some concerning capabilities detected but intent is unclear. Review permissions and network indicators carefully.
+        {% else %}
+          No significant malicious indicators detected. Risk score is low. Sample appears clean based on static analysis.
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs-wrap">
+      <div class="tabs">
+        {% set nb_count = r.behaviors|length %}
+        {% set api_count = (r.suspicious_apis or r.imports or [])|length %}
+        {% set net = r.network_indicators or {} %}
+        {% set ip_count = ((net.hardcoded_ips or [])|length) + ((net.private_ips or [])|length) %}
+        {% set url_count = (net.hardcoded_urls or [])|length %}
+        {% set perm_count = r.permissions.total_count if r.permissions else 0 %}
+        {% set str_count = ((r.string_intelligence or {}).telegram_tokens|length) + ((r.string_intelligence or {}).hardcoded_credentials|length) %}
+
+        <div class="tab active" onclick="showTab('behavior',this)">
+          Behavior <span class="tab-count">{{ nb_count + api_count }}</span>
+        </div>
+        <div class="tab" onclick="showTab('network',this)">
+          Network <span class="tab-count">{{ ip_count + url_count }}</span>
+        </div>
+        <div class="tab" onclick="showTab('permissions',this)">
+          Permissions <span class="tab-count">{{ perm_count }}</span>
+        </div>
+        <div class="tab" onclick="showTab('infrastructure',this)">
+          Infrastructure <span class="tab-count">{{ str_count }}</span>
+        </div>
+        {% if r.sections or r.pdb_path %}
+        <div class="tab" onclick="showTab('pe',this)">
+          PE Analysis
+        </div>
+        {% endif %}
+        <div class="tab" onclick="showTab('scoring',this)">
+          Scoring
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════ -->
+    <!-- TAB: BEHAVIOR                               -->
+    <!-- ════════════════════════════════════════════ -->
+    <div class="tab-content">
+    <div id="tab-behavior" class="panel active">
+
+      <!-- Behavioral Patterns -->
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Behavioral patterns</span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% if r.behaviors %}
+            {% for b in r.behaviors %}
+            <div class="beh-card sev-{{ b.severity|lower }}">
+              <div class="beh-top">
+                <span class="badge b-{{ b.severity|lower }}">{{ b.severity }}</span>
+                <span class="beh-name">{{ b.name }}</span>
+                {% if b.mitre %}<span class="badge b-mitre">{{ b.mitre }}</span>{% endif %}
+              </div>
+              <div class="beh-desc">{{ b.description }}</div>
+              <div class="beh-inds">
+                {% for ind in b.indicators %}<span class="ind-chip">{{ ind }}</span>{% endfor %}
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Suspicious API Calls -->
+      {% set apis = r.suspicious_apis or r.imports or [] %}
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Suspicious API calls</span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% if apis %}
+            {% for api in apis %}
+            <div class="api-item risk-{{ api.risk|lower }}">
+              <div class="api-top">
+                <span class="badge b-{{ api.risk|lower }}">{{ api.risk }}</span>
+                <span class="api-name">{{ api.api or api.function }}</span>
+                {% if api.get('mitre_id') %}<span class="badge b-mitre">{{ api.mitre_id }}</span>{% endif %}
+              </div>
+              <div class="api-exp">{{ api.explanation }}</div>
+              {% if api.get('callers') %}
+              <div class="api-callers">Called from: {% for c in api.callers[:3] %}{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Obfuscation -->
+      {% if r.obfuscation %}
+      <div class="acc {% if r.obfuscation.likely_obfuscated %}open{% endif %}">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Obfuscation analysis
+            {% if r.obfuscation.likely_obfuscated %}<span class="badge b-high" style="margin-left:8px">DETECTED</span>{% endif %}
+          </span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% if r.obfuscation.flags %}
+            {% for flag in r.obfuscation.flags %}
+            <div class="api-item risk-high" style="margin-bottom:6px">
+              <div class="api-exp">⚠ {{ flag }}</div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+    </div><!-- /tab-behavior -->
+
+    <!-- ════════════════════════════════════════════ -->
+    <!-- TAB: NETWORK                                -->
+    <!-- ════════════════════════════════════════════ -->
+    <div id="tab-network" class="panel">
+      {% set net = r.network_indicators or {} %}
+      {% set enr         = r.enriched_ips or [] %}
+      {% set priv_entries= r.private_ip_entries or [] %}
+      {% set raw_ips     = net.hardcoded_ips or [] %}
+      {% set priv_ips    = net.private_ips or [] %}
+
+      <!-- ── PUBLIC IPs with OSINT ── -->
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">
+            Public IP Addresses — OSINT Enriched
+            <span class="tab-count" style="margin-left:8px">{{ enr|length }}</span>
+          </span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% if enr %}
+            <!-- Quick chip view -->
+            <div class="ip-chips">
+              {% for ip in enr %}
+              <span class="ip-chip {% if ip.is_malicious_ip %}mal{% endif %}">{{ ip.ip }}</span>
+              {% endfor %}
+            </div>
+            <!-- Full OSINT table -->
+            <table class="nt">
+              <thead>
+                <tr>
+                  <th>IP Address</th>
+                  <th>Country</th>
+                  <th>City / Region</th>
+                  <th>ISP / ASN</th>
+                  <th>Hosting</th>
+                  <th>Abuse Score</th>
+                  <th>Verdict</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for ip in enr %}
+                <tr>
+                  <td class="mono" style="font-weight:700;color:var(--cyan)">{{ ip.ip }}</td>
+                  <td>
+                    {% if ip.country and ip.country != 'Unknown' %}
+                      🌍 {{ ip.country }}{% if ip.country_code %} ({{ ip.country_code }}){% endif %}
+                    {% else %}<span style="color:var(--muted2)">Unknown</span>{% endif %}
+                  </td>
+                  <td style="font-size:0.8rem;color:var(--muted)">
+                    {{ ip.city or '' }}{% if ip.city and ip.region %}, {% endif %}{{ ip.region or '' }}
+                    {% if not ip.city and not ip.region %}<span style="color:var(--muted2)">—</span>{% endif %}
+                  </td>
+                  <td style="font-size:0.78rem">
+                    <div>{{ ip.isp or '—' }}</div>
+                    <div style="color:var(--muted2);font-family:monospace;font-size:0.72rem">{{ ip.asn or '' }}</div>
+                  </td>
+                  <td>{% if ip.hosting %}<span style="color:var(--orange)">☁ VPS/DC</span>{% else %}<span style="color:var(--muted2)">No</span>{% endif %}</td>
+                  <td>
+                    {% set score = (ip.abuse_score or 0)|int %}
+                    <div class="abuse-bar">
+                      <div style="height:6px;width:100%;background:var(--border2);border-radius:3px;margin-bottom:4px;overflow:hidden">
+                        <div style="height:100%;width:{{ score }}%;background:{% if score>=70 %}var(--red){% elif score>=30 %}var(--orange){% else %}var(--green){% endif %};border-radius:3px"></div>
+                      </div>
+                      <span class="abuse {% if score>=70 %}hi{% elif score>=30 %}mid{% else %}lo{% endif %}">{{ score }}/100</span>
+                    </div>
+                  </td>
+                  <td>
+                    {% if ip.is_malicious_ip %}
+                      <span class="badge b-critical">⚠ Malicious</span>
+                    {% else %}
+                      <span class="badge b-low">✓ Clean</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% elif raw_ips %}
+            <!-- Public IPs found but no API keys configured -->
+            <div class="ip-chips">
+              {% for ip in raw_ips %}<span class="ip-chip">{{ ip }}</span>{% endfor %}
+            </div>
+            <div style="margin-top:10px;padding:12px 14px;background:var(--yellow-bg);border:1px solid rgba(255,215,0,0.2);border-radius:8px;font-size:0.83rem;color:var(--yellow)">
+              ⚠ OSINT enrichment requires API keys. Add ABUSEIPDB_API_KEY and VIRUSTOTAL_API_KEY to your .env file.
+            </div>
+          {% else %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- ── PRIVATE IPs ── -->
+      <div class="acc {% if priv_entries or priv_ips %}open{% endif %}">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">
+            Private / Internal IP Addresses
+            <span class="tab-count" style="margin-left:8px">{{ (priv_entries or priv_ips)|length }}</span>
+          </span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% set all_private = priv_entries if priv_entries else (priv_ips | map('string') | list) %}
+          {% if all_private %}
+            <div style="margin-bottom:10px;padding:10px 14px;background:var(--card2);border:1px solid var(--border2);border-radius:8px;font-size:0.82rem;color:var(--muted)">
+              ℹ These are private/internal IP ranges (10.x.x.x, 192.168.x.x, 127.x.x.x). They indicate internal network configuration or localhost references — not external C2 servers.
+            </div>
+            <div class="ip-chips">
+              {% for entry in all_private %}
+                {% set ip_val = entry.ip if entry is mapping else entry %}
+                <span class="ip-chip" style="border-color:rgba(255,215,0,0.3);color:var(--yellow)">{{ ip_val }}</span>
+              {% endfor %}
+            </div>
+            <table class="nt" style="margin-top:8px">
+              <thead>
+                <tr><th>IP Address</th><th>Range Type</th><th>OSINT Status</th></tr>
+              </thead>
+              <tbody>
+                {% for entry in all_private %}
+                  {% set ip_val = entry.ip if entry is mapping else entry %}
+                  {% if ip_val.startswith('10.') %}{% set rtype = "Class A Private (10.0.0.0/8)" %}
+                  {% elif ip_val.startswith('192.168.') %}{% set rtype = "Class C Private (192.168.0.0/16)" %}
+                  {% elif ip_val.startswith('172.') %}{% set rtype = "Class B Private (172.16.0.0/12)" %}
+                  {% elif ip_val.startswith('127.') %}{% set rtype = "Loopback (127.0.0.0/8)" %}
+                  {% elif ip_val.startswith('169.254.') %}{% set rtype = "Link-Local (169.254.0.0/16)" %}
+                  {% else %}{% set rtype = "Reserved Range" %}{% endif %}
+                  <tr>
+                    <td class="mono" style="color:var(--yellow)">{{ ip_val }}</td>
+                    <td style="font-size:0.8rem;color:var(--muted)">{{ rtype }}</td>
+                    <td><span class="badge" style="background:var(--card2);color:var(--muted2);border:1px solid var(--border2)">Not Enriched</span></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- ── URLs ── -->
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">
+            Hardcoded URLs
+            <span class="tab-count" style="margin-left:8px">{{ (net.hardcoded_urls or [])|length }}</span>
+          </span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% set urls = net.hardcoded_urls or [] %}
+          {% if urls %}
+            {% for u in urls %}
+            <div class="url-item {% if u.suspicious_tld %}susp{% endif %}">
+              <div class="url-text">{{ u.url }}</div>
+              {% if u.suspicious_tld %}
+                <span class="badge b-high" style="flex-shrink:0">⚠ Suspicious TLD</span>
+              {% else %}
+                <span class="badge b-low" style="flex-shrink:0">Normal</span>
+              {% endif %}
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- ── Domains ── -->
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">
+            Extracted Domains
+            <span class="tab-count" style="margin-left:8px">{{ (net.domains or [])|length }}</span>
+          </span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% set doms = net.domains or [] %}
+          {% if doms %}
+            <div class="chip-row">
+              {% for d in doms %}
+              <span class="chip {% if d.endswith(('.xyz','.ru','.top','.tk','.ml','.cf','.ga','.pw','.cc')) %}phone{% endif %}">{{ d }}</span>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- ── Phone Numbers ── -->
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">
+            Hardcoded Phone Numbers
+            <span class="tab-count" style="margin-left:8px">{{ (net.phone_numbers or [])|length }}</span>
+          </span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% set phones = net.phone_numbers or [] %}
+          {% if phones %}
+            <div class="chip-row">
+              {% for ph in phones %}<span class="chip phone">📞 {{ ph }}</span>{% endfor %}
+            </div>
+          {% else %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+    </div><!-- /tab-network -->
+
+    <!-- ════════════════════════════════════════════ -->
+    <!-- TAB: PERMISSIONS                            -->
+    <!-- ════════════════════════════════════════════ -->
+    <div id="tab-permissions" class="panel">
+      {% set perms = r.permissions or {} %}
+      {% set dangerous = perms.dangerous or {} %}
+
+      {% for level in ['CRITICAL', 'HIGH', 'MEDIUM'] %}
+      {% set plist = dangerous.get(level, []) %}
+      {% if plist %}
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">
+            <span class="badge b-{{ level|lower }}" style="margin-right:6px">{{ level }}</span>
+            {{ plist|length }} permission{{ 's' if plist|length != 1 }}
+          </span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% for p in plist %}
+          <div class="perm-item">
+            <div class="perm-top">
+              <span class="badge b-{{ p.risk|lower }}">{{ p.risk }}</span>
+              <span class="perm-short">{{ p.short }}</span>
+              {% if p.mitre_id %}<span class="badge b-mitre">{{ p.mitre_id }} — {{ p.mitre_name }}</span>{% endif %}
+            </div>
+            <div class="perm-full">{{ p.permission }}</div>
+            <div class="perm-exp">{{ p.explanation }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+
+      <!-- Normal permissions summary -->
+      {% set normal = dangerous.get('NORMAL', []) %}
+      {% if normal %}
+      <div class="acc">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Normal permissions ({{ normal|length }})</span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          <div class="chip-row">
+            {% for p in normal %}<span class="chip" style="font-size:0.76rem;font-family:monospace">{{ p.short }}</span>{% endfor %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if not perms or perms.total_count == 0 %}
+      <div class="acc open">
+        <div class="acc-head"><span class="acc-title">Permissions</span></div>
+        <div class="acc-body"><div class="acc-empty">Nothing found.</div></div>
+      </div>
+      {% endif %}
+    </div><!-- /tab-permissions -->
+
+    <!-- ════════════════════════════════════════════ -->
+    <!-- TAB: INFRASTRUCTURE                         -->
+    <!-- ════════════════════════════════════════════ -->
+    <div id="tab-infrastructure" class="panel">
+      {% set strings = r.string_intelligence or {} %}
+
+      <!-- Third-party services -->
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Third-party services</span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% set tg = strings.telegram_tokens or [] %}
+          {% set dc = strings.discord_tokens or [] %}
+          {% set fb = strings.firebase_configs or [] %}
+          {% if tg %}
+            {% for t in tg %}
+            <div class="alert critical">
+              <div class="alert-title">⚠ Telegram Bot Token — C2 Channel</div>
+              <div class="alert-val">{{ t }}</div>
+            </div>
+            {% endfor %}
+          {% endif %}
+          {% if dc %}
+            {% for d in dc %}
+            <div class="alert high">
+              <div class="alert-title">⚠ Discord Token Found</div>
+              <div class="alert-val">{{ d }}</div>
+            </div>
+            {% endfor %}
+          {% endif %}
+          {% if fb %}
+            {% for f in fb %}
+            <div class="alert medium">
+              <div class="alert-title">Firebase Config Detected</div>
+              <div class="alert-val">{{ f }}</div>
+            </div>
+            {% endfor %}
+          {% endif %}
+          {% if not tg and not dc and not fb %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Hardcoded Credentials -->
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Hardcoded credentials</span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% set creds = strings.hardcoded_credentials or [] %}
+          {% if creds %}
+            <table class="cred-table">
+              <thead><tr><th>Key</th><th>Value (Partial)</th></tr></thead>
+              <tbody>
+                {% for c in creds %}
+                <tr>
+                  <td class="mono" style="color:var(--orange)">{{ c.key }}</td>
+                  <td class="mono">{{ c.value }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Certificate Details -->
+      {% if r.certificate and not r.certificate.get('error') %}
+      <div class="acc">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Certificate details
+            {% if r.certificate.is_debug %}<span class="badge b-critical" style="margin-left:8px">DEBUG</span>{% endif %}
+          </span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          <table class="nt">
+            <tr><td style="color:var(--muted);width:120px">Issuer</td><td class="mono" style="font-size:0.8rem">{{ r.certificate.issuer }}</td></tr>
+            <tr><td style="color:var(--muted)">Subject</td><td class="mono" style="font-size:0.8rem">{{ r.certificate.subject }}</td></tr>
+            <tr><td style="color:var(--muted)">Debug Cert</td>
+              <td>{% if r.certificate.is_debug %}<span class="badge b-critical">YES — Suspicious</span>{% else %}<span class="badge b-low">No</span>{% endif %}</td>
+            </tr>
+            <tr><td style="color:var(--muted)">Self-Signed</td>
+              <td>{% if r.certificate.is_self_signed %}<span class="badge b-high">YES</span>{% else %}<span class="badge b-low">No</span>{% endif %}</td>
+            </tr>
+            {% if r.certificate.sha1 %}
+            <tr><td style="color:var(--muted)">SHA1</td><td class="mono" style="font-size:0.76rem">{{ r.certificate.sha1 }}</td></tr>
+            {% endif %}
+          </table>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Manifest Components -->
+      {% if r.manifest_components %}
+      {% set mc = r.manifest_components %}
+      <div class="acc">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Manifest components</span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          <div class="man-grid">
+            <div class="man-box">
+              <div class="man-label">Activities</div>
+              <div class="man-count">{{ mc.activities|length }}</div>
+              {% for a in mc.activities[:4] %}<div class="man-name">{{ a.name.split('.')[-1] }}</div>{% endfor %}
+            </div>
+            <div class="man-box">
+              <div class="man-label">Services</div>
+              <div class="man-count">{{ mc.services|length }}</div>
+              {% for s in mc.services[:4] %}<div class="man-name">{{ s.name.split('.')[-1] }}</div>{% endfor %}
+            </div>
+            <div class="man-box">
+              <div class="man-label">Receivers</div>
+              <div class="man-count">{{ mc.receivers|length }}</div>
+              {% for r2 in mc.receivers[:4] %}<div class="man-name">{{ r2.name.split('.')[-1] }}</div>{% endfor %}
+            </div>
+            <div class="man-box">
+              <div class="man-label">Providers</div>
+              <div class="man-count">{{ mc.providers|length }}</div>
+              {% for p in mc.providers[:4] %}<div class="man-name">{{ p.name.split('.')[-1] }}</div>{% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+    </div><!-- /tab-infrastructure -->
+
+    <!-- ════════════════════════════════════════════ -->
+    <!-- TAB: PE ANALYSIS (Windows only)             -->
+    <!-- ════════════════════════════════════════════ -->
+    {% if r.sections or r.pdb_path %}
+    <div id="tab-pe" class="panel">
+
+      {% if r.pdb_path %}
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">PDB Debug Path — Developer Workspace Leaked</span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          <div class="alert high">
+            <div class="alert-title">Developer Workspace Path Found</div>
+            <div class="alert-val">{{ r.pdb_path }}</div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if r.sections %}
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">PE Sections — Entropy Analysis
+            {% if r.is_packed %}<span class="badge b-critical" style="margin-left:8px">PACKED</span>{% endif %}
+          </span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          <table class="nt">
+            <thead><tr><th>Section</th><th>Virtual Address</th><th>Size</th><th>Entropy</th><th>Status</th></tr></thead>
+            <tbody>
+              {% for sec in r.sections %}
+              <tr>
+                <td class="mono">{{ sec.name }}</td>
+                <td class="mono">{{ sec.virtual_address }}</td>
+                <td>{{ sec.raw_size }}</td>
+                <td>
+                  <span class="entropy-bar"><span class="entropy-fill {% if sec.entropy > 7 %}ef-hi{% elif sec.entropy > 5 %}ef-med{% else %}ef-lo{% endif %}" style="width:{{ (sec.entropy/8*100)|int }}%"></span></span>
+                  {{ sec.entropy }}
+                </td>
+                <td>{% if sec.is_packed %}<span class="badge b-critical">Packed</span>{% else %}<span class="badge b-low">Normal</span>{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if r.strings_of_interest %}
+      <div class="acc">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Strings of Interest ({{ r.strings_of_interest|length }})</span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% for s in r.strings_of_interest[:20] %}
+          <div class="url-item">
+            <span class="badge b-medium" style="flex-shrink:0">{{ s.type }}</span>
+            <div class="url-text">{{ s.value }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+    </div><!-- /tab-pe -->
+    {% endif %}
+
+    <!-- ════════════════════════════════════════════ -->
+    <!-- TAB: SCORING                                -->
+    <!-- ════════════════════════════════════════════ -->
+    <div id="tab-scoring" class="panel">
+      <div class="acc open">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Verdict scoring rules</span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body">
+          {% set fired = vi.fired_rules or [] %}
+          {% if fired %}
+            {% for rule in fired %}
+            <div class="rule-row">
+              <span class="rule-id">{{ rule.rule }}</span>
+              <span class="rule-label">{{ rule.label }}</span>
+              <span class="rule-impact {% if '-' in rule.impact %}neg{% else %}pos{% endif %}">{{ rule.impact }}</span>
+              <span class="rule-type">{{ rule.type }}</span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="acc-empty">Nothing found.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="acc">
+        <div class="acc-head" onclick="toggleAcc(this)">
+          <span class="acc-title">Risk vs. Confidence Matrix</span>
+          <span class="acc-arrow">▼</span>
+        </div>
+        <div class="acc-body" style="font-size:0.83rem;color:var(--muted);line-height:1.8">
+          <div><span style="color:var(--red);font-weight:700">🔴 MALICIOUS</span> — Risk ≥ 70 AND Confidence ≥ 70</div>
+          <div><span style="color:var(--orange);font-weight:700">🟠 SUSPICIOUS</span> — Risk ≥ 70 OR Confidence ≥ 70</div>
+          <div><span style="color:var(--yellow);font-weight:700">🟡 PUA</span> — Risk ≥ 40 or moderate indicators</div>
+          <div><span style="color:var(--green);font-weight:700">🟢 SAFE</span> — Low risk, no suspicious intent</div>
+        </div>
+      </div>
+    </div><!-- /tab-scoring -->
+
+    </div><!-- /tab-content -->
+  </main>
+</div>
+
+<script>
+  function showTab(name, el) {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    el.classList.add('active');
+  }
+  function toggleAcc(head) {
+    head.closest('.acc').classList.toggle('open');
+  }
+</script>
+</body>
+</html>
